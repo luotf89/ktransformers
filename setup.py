@@ -31,10 +31,10 @@ from setuptools import setup, Extension
 from cpufeature.extension import CPUFeature
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension, CUDA_HOME
 try:
-    from torch_musa.utils.simple_porting import SimplePorting
-    from torch_musa.utils.musa_extension import BuildExtension, MUSAExtension, MUSA_HOME
+    from tops_extension import TopsExtension, TopsBuildExtension
+    TOPS_HOME = "/opt/tops"
 except ImportError:
-    MUSA_HOME=None
+    TOPSOP_HOME=None
 
 class CpuInstructInfo:
     CPU_INSTRUCT = os.getenv("CPU_INSTRUCT", "NATIVE")
@@ -52,17 +52,17 @@ class VersionInfo:
     BASE_WHEEL_URL:str = (
         "https://github.com/kvcache-ai/ktransformers/releases/download/{tag_name}/{wheel_filename}"
     )
-    FORCE_BUILD = os.getenv("KTRANSFORMERS_FORCE_BUILD", "FALSE") == "TRUE"
+    FORCE_BUILD = os.getenv("KTRANSFORMERS_FORCE_BUILD", "TRUE") == "TRUE"
 
-    def get_musa_bare_metal_version(self, musa_dir):
+    def get_tops_bare_metal_version(self, tops_dir):
         raw_output = subprocess.run(
-            [musa_dir + "/bin/mcc", "-v"], check=True,
+            [tops_dir + "/bin/topscc", "--version"], check=True,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.decode("utf-8")
         output = raw_output.split()
-        release_idx = output.index("version") + 1
+        release_idx = output.index("Version:") + 1
         bare_metal_version = parse(output[release_idx].split(",")[0])
-        musa_version = f"{bare_metal_version.major}{bare_metal_version.minor}"
-        return musa_version
+        tops_version = f"{bare_metal_version.major}{bare_metal_version.minor}"
+        return tops_version
 
     def get_cuda_bare_metal_version(self, cuda_dir):
         raw_output = subprocess.check_output(
@@ -149,10 +149,10 @@ class VersionInfo:
         backend_version = ""
         if CUDA_HOME is not None:
             backend_version = f"cu{self.get_cuda_bare_metal_version(CUDA_HOME)}"
-        elif MUSA_HOME is not None:
-            backend_version = f"mu{self.get_musa_bare_metal_version(MUSA_HOME)}"
+        elif TOPS_HOME is not None:
+            backend_version = f"tops{self.get_tops_bare_metal_version(TOPS_HOME)}"
         else:
-            raise ValueError("Unsupported backend: CUDA_HOME and MUSA_HOME are not set.")
+            raise ValueError("Unsupported backend: CUDA_HOME and TOPS_HOME are not set.")
         package_version = f"{flash_version}+{backend_version}torch{torch_version}{cpu_instruct}"
         if full_version:
             return package_version
@@ -214,7 +214,7 @@ class CMakeExtension(Extension):
             Path(sourcedir).resolve() / "ktransformers" / "ktransformers_ext")
 
 
-class CMakeBuild(BuildExtension):
+class CMakeBuild(TopsBuildExtension):
 
     def build_extension(self, ext) -> None:
         if not isinstance(ext, CMakeExtension):
@@ -245,10 +245,10 @@ class CMakeBuild(BuildExtension):
 
         if CUDA_HOME is not None:
             cmake_args += ["-DKTRANSFORMERS_USE_CUDA=ON"]
-        elif MUSA_HOME is not None:
-            cmake_args += ["-DKTRANSFORMERS_USE_MUSA=ON"]
+        elif TOPS_HOME is not None:
+            cmake_args += ["-DKTRANSFORMERS_USE_TOPS=ON"]
         else:
-            raise ValueError("Unsupported backend: CUDA_HOME and MUSA_HOME are not set.")
+            raise ValueError("Unsupported backend: CUDA_HOME and TOPS_HOME are not set.")
 
         build_args = []
         if "CMAKE_ARGS" in os.environ:
@@ -344,31 +344,59 @@ if CUDA_HOME is not None:
             ]
         }
     )
-elif MUSA_HOME is not None:
-    SimplePorting(cuda_dir_path="ktransformers/ktransformers_ext/cuda", mapping_rule={
-        # Common rules
-        "at::cuda": "at::musa",
-        "#include <ATen/cuda/CUDAContext.h>": "#include \"torch_musa/csrc/aten/musa/MUSAContext.h\"",
-        "#include <c10/cuda/CUDAGuard.h>": "#include \"torch_musa/csrc/core/MUSAGuard.h\"",
-        "nv_bfloat16": "mt_bfloat16",
-        }).run()
-    ops_module = MUSAExtension('KTransformersOps', [
-        'ktransformers/ktransformers_ext/cuda_musa/custom_gguf/dequant.mu',
-        'ktransformers/ktransformers_ext/cuda_musa/binding.cpp',
-        # TODO: Add Marlin support for MUSA.
-        # 'ktransformers/ktransformers_ext/cuda_musa/gptq_marlin/gptq_marlin.mu'
-    ],
-    extra_compile_args={
-            'cxx': ['force_mcc'],
-            'mcc': [
-                '-O3',
-                '-DKTRANSFORMERS_USE_MUSA',
-                '-DTHRUST_IGNORE_CUB_VERSION_CHECK',
+elif TOPS_HOME is not None:
+    ABI = 1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0
+    ops_module = TopsExtension(
+        name = 'KTransformersOps', 
+        sources = [
+            'ktransformers/ktransformers_ext/cuda/custom_gguf/dequant.tops',
+            'ktransformers/ktransformers_ext/cuda/binding.cpp',
+            # 'ktransformers/ktransformers_ext/cuda/gptq_marlin/gptq_marlin.cu'
+        ],
+        libraries=[
+            "topsrt",
+            "torch_gcu",
+            "torch_python",
+        ],
+        library_dirs=[
+            "/usr/lib/",
+            "/opt/tops/lib/",
+            "/usr/local/lib/python3.10/dist-packages/torch_gcu/lib/", # 以torch_gcu的实际安装目录为准
+            "/usr/local/lib/python3.10/dist-packages/torch/lib/"
+        ],
+        extra_compile_args={
+            'cxx': [
+                "-g",
+                "-O3",
+                "-std=c++17",
+                "-rdynamic",
+                "-Wno-unused-function",
+                "-Wno-unused-variable",
+                "-Wno-write-strings",
+                f"-D_GLIBCXX_USE_CXX11_ABI={ABI}",
+                '-DKTRANSFORMERS_USE_TOPS',
+                "-I/usr/local/lib/python3.10/dist-packages/torch/include",
+                "-I/usr/local/lib/python3.10/dist-packages/torch/include/torch/csrc/api/include",
+                "-I/usr/local/lib/python3.10/dist-packages/torch_gcu/include/",
+            ],
+            'topscc': [
+                "-std=c++17",
+                "-Wno-unused-result",
+                "-Wno-unused-function",
+                "-Wno-unused-variable",
+                f"-D_GLIBCXX_USE_CXX11_ABI={ABI}",
+                "-arch=gcu300",
+                "-D__GCU_ARCH__=300",
+                "-D__KRT_ARCH__=300",
+                "-DKTRANSFORMERS_USE_TOPS",
+                "-I/usr/local/lib/python3.10/dist-packages/torch/include",
+                "-I/usr/local/lib/python3.10/dist-packages/torch/include/torch/csrc/api/include",
+                "-I/usr/local/lib/python3.10/dist-packages/torch_gcu/include/",
             ]
         }
     )
 else:
-    raise ValueError("Unsupported backend: CUDA_HOME and MUSA_HOME are not set.")
+    raise ValueError("Unsupported backend: CUDA_HOME and TOPS_HOME are not set.")
 
 setup(
     version=VersionInfo().get_package_version(),

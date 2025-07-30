@@ -9,7 +9,7 @@
  **/
 // Python bindings
 #include "cpu_backend/cpuinfer.h"
-#include "device_launch_parameters.h"
+// #include "device_launch_parameters.h"
 #include "llamafile/flags.h"
 #include "operators/kvcache/kvcache.h"
 #include "operators/llamafile/linear.h"
@@ -532,7 +532,7 @@ class MOEBindings {
             MOE *moe;
             int qlen;
             int k;
-            const uint64_t *expert_ids;
+            const uint32_t *expert_ids;
             const float *weights;
             const void *input;
             void *output;
@@ -550,7 +550,7 @@ class MOEBindings {
                                   &moe,
                                   qlen,
                                   k,
-                                  (const uint64_t *)expert_ids,
+                                  (const uint32_t *)expert_ids,
                                   (const float *)weights,
                                   (const void *)input,
                                   (void *)output};

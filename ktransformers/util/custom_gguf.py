@@ -25,7 +25,7 @@ import os
 from enum import IntEnum
 import torch
 import KTransformersOps
-from .custom_loader import SafeTensorLoader
+# from .custom_loader import SafeTensorLoader
 import ctypes
 import math
 
@@ -171,7 +171,7 @@ class GGUFLoader:
     gguf_path: str
     tensor_file_map: dict # {tensor_name: tensor_file_path}
     gguf_file_meta: dict
-    safetensor_loader: SafeTensorLoader
+    safetensor_loader = None
     def __init__(self, gguf_path: str):
         # Check dir exist
         if not os.path.exists(gguf_path):
@@ -188,13 +188,13 @@ class GGUFLoader:
         self.gguf_file_meta = {}
         self.tensor_device_map = {}
 
-        # I know this is ugly, but I don't want to change the original code too much
-        # TODO: merge gguf load and other loads.
-        safetensor_loader = SafeTensorLoader(gguf_path)
-        if safetensor_loader.tensor_file_map:
-            self.safetensor_loader = safetensor_loader
-            return
-        # Walk through all the .gguf files in the directory
+        # # I know this is ugly, but I don't want to change the original code too much
+        # # TODO: merge gguf load and other loads.
+        # safetensor_loader = SafeTensorLoader(gguf_path)
+        # if safetensor_loader.tensor_file_map:
+        #     self.safetensor_loader = safetensor_loader
+        #     return
+        # # Walk through all the .gguf files in the directory
         found_gguf = False
         for root, dirs, files in os.walk(gguf_path):
             for file in files:
@@ -326,7 +326,9 @@ class GGUFLoader:
         data = data[offset: offset + block_size * blocks_per_experts]
         
         if "cuda" in device.lower():
-            values = GGML_DEQUANTIZE_GPU[ggml_name](data, device, target_dtype)
+            # values = GGML_DEQUANTIZE_GPU[ggml_name](data, device, target_dtype)
+            values = GGML_DEQUANTIZE[ggml_name](data)
+            values = torch.from_numpy(values.copy()).to(device)
         else:
             values = GGML_DEQUANTIZE[ggml_name](data)
             values = torch.from_numpy(values.copy())
@@ -366,7 +368,10 @@ class GGUFLoader:
                 blocks_begin = i * blocks_per_iter
                 blocks_end = min(blocks_begin + blocks_per_iter, num_blocks)
                 if "cuda" in device.lower():
-                    cur_values = GGML_DEQUANTIZE_GPU[ggml_name](data[blocks_begin*block_size : blocks_end*block_size], device, target_dtype)
+                    # cur_values = GGML_DEQUANTIZE_GPU[ggml_name](data[blocks_begin*block_size : blocks_end*block_size], device, target_dtype)
+                    cur_values = GGML_DEQUANTIZE[ggml_name](data[blocks_begin*block_size : blocks_end*block_size])
+                    cur_values = torch.from_numpy(cur_values.copy()).to(device)
+
                 else:
                     cur_values = GGML_DEQUANTIZE[ggml_name](data[blocks_begin*block_size : blocks_end*block_size])
                     cur_values = torch.from_numpy(cur_values.copy())
@@ -377,7 +382,9 @@ class GGUFLoader:
                 values[blocks_begin : blocks_end] = cur_values
         else:
             if "cuda" in device.lower():
-                values = GGML_DEQUANTIZE_GPU[ggml_name](data, device)
+                # values = GGML_DEQUANTIZE_GPU[ggml_name](data, device)
+                values = GGML_DEQUANTIZE[ggml_name](data)
+                values = torch.from_numpy(values).to(device)
             else:
                 values = GGML_DEQUANTIZE[ggml_name](data)
                 values = torch.from_numpy(values)

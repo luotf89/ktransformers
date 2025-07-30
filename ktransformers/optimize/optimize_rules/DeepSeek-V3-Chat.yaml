@@ -15,6 +15,7 @@
       generate_device: "cuda"
       prefill_device: "cuda"
       generate_op: "KLinearMarlin"
+      # generate_op: "KLinearTorch"
       prefill_op: "KLinearTorch"
 
 - match:
@@ -26,6 +27,7 @@
       generate_device: "cuda"
       prefill_device: "cuda"
       generate_op: "KLinearMarlin"
+      # generate_op: "KLinearTorch"
       prefill_op: "KLinearTorch"
 - match:
     name: "^model\\.layers\\..*\\.mlp$"

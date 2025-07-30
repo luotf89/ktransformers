@@ -19,8 +19,8 @@
 #include <vector>
 #ifdef KTRANSFORMERS_USE_CUDA
 #include "vendors/cuda.h"
-#elif KTRANSFORMERS_USE_MUSA
-#include "vendors/musa.h"
+#else
+#include "tops_runtime_api.h"
 #endif
 
 #include "backend.h"
@@ -65,7 +65,11 @@ class CPUInfer {
         void (*func)(void*) = (void (*)(void*))params.first;
         void* args = (void*)params.second;
         *((CPUInfer**)args) = this;
+#ifdef KTRANSFORMERS_USE_CUDA
         cudaLaunchHostFunc((cudaStream_t)user_cuda_stream, (cudaHostFn_t)func, args);
+#else
+        topsLaunchHostFunc((topsStream_t)user_cuda_stream, (topsHostFn_t)func, args);
+#endif
     }
 
     static void sync_(void* cpu_infer_ptr) {
@@ -74,7 +78,11 @@ class CPUInfer {
     }
 
     void sync_with_cuda_stream(intptr_t user_cuda_stream) {
+#ifdef KTRANSFORMERS_USE_CUDA
         cudaLaunchHostFunc((cudaStream_t)user_cuda_stream, (cudaHostFn_t)&sync_, (void*)this);
+#else
+        topsLaunchHostFunc((topsStream_t)user_cuda_stream, (topsHostFn_t)&sync_, (void*)this);
+#endif
     }
 
    public:

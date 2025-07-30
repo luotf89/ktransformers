@@ -31,7 +31,7 @@ if (NOT MSVC)
 endif()
 option(LLAMA_AVX512_FANCY_SIMD               "llama: enable AVX512-VL, AVX512-BW, AVX512-DQ, AVX512-VNNI"                        OFF)
 option(KTRANSFORMERS_USE_CUDA                "ktransformers: use CUDA"                          OFF)
-option(KTRANSFORMERS_USE_MUSA                "ktransformers: use MUSA"                          OFF)
+option(KTRANSFORMERS_USE_TOPS                "ktransformers: use TOPS"                          ON)
 
 # Architecture specific
 # TODO: probably these flags need to be tweaked on some architectures
@@ -218,24 +218,26 @@ elseif (UNIX)
         add_compile_definitions(KTRANSFORMERS_USE_CUDA=1)
     endif()
 
-    if (KTRANSFORMERS_USE_MUSA)
-        if (NOT EXISTS $ENV{MUSA_PATH})
-            if (NOT EXISTS /opt/musa)
-                set(MUSA_PATH /usr/local/musa)
+    if (KTRANSFORMERS_USE_TOPS)
+        if (NOT EXISTS $ENV{TOPS_PATH})
+            if (NOT EXISTS /opt/tops)
+                include_directories(/usr/local/tops/include)
+                set(TOPS_PATH /usr/local/tops)
             else()
-                set(MUSA_PATH /opt/musa)
+                include_directories(/opt/tops/include)
+                set(TOPS_PATH /opt/tops)
             endif()
         else()
-            set(MUSA_PATH $ENV{MUSA_PATH})
+            set(TOPS_PATH $ENV{TOPS_PATH})
         endif()
 
-        list(APPEND CMAKE_MODULE_PATH "${MUSA_PATH}/cmake")
+        list(APPEND CMAKE_MODULE_PATH "${TOPS_PATH}/cmake")
 
-        find_package(MUSAToolkit)
-        if (MUSAToolkit_FOUND)
-            message(STATUS "MUSA Toolkit found")
-            add_compile_definitions(KTRANSFORMERS_USE_MUSA=1)
-        endif()
+        # find_package(MUSAToolkit)
+        # if (MUSAToolkit_FOUND)
+        #     message(STATUS "MUSA Toolkit found")
+        #     add_compile_definitions(KTRANSFORMERS_USE_MUSA=1)
+        # endif()
     endif()
 endif()
 
@@ -258,8 +260,18 @@ elseif(UNIX)
         endif()
         target_link_libraries(${PROJECT_NAME} PRIVATE "$ENV{CUDA_HOME}/lib64/libcudart.so")
     endif()
-    if(KTRANSFORMERS_USE_MUSA)
-        target_link_libraries(${PROJECT_NAME} PRIVATE MUSA::musart)
+    if(KTRANSFORMERS_USE_TOPS)
+        target_link_directories(${PROJECT_NAME} PRIVATE
+            /opt/tops/lib/
+            /usr/local/lib/python3.10/dist-packages/torch_gcu/lib/
+            /usr/local/lib/python3.10/dist-packages/torch/lib/
+        )
+        target_link_libraries(${PROJECT_NAME} PRIVATE
+            dl
+            topsrt
+            torch_gcu
+            torch_python
+        )
     endif()
 endif()
 

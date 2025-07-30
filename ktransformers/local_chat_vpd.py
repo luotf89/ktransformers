@@ -69,7 +69,7 @@ def local_chat(
     force_think: bool = False,
     chunk_prefill_size: int = 8192
 ):
-
+    force_think = False
     torch.set_grad_enabled(False)
 
     Config().cpu_infer = cpu_infer
@@ -132,45 +132,27 @@ def local_chat(
     logging.basicConfig(level=logging.INFO)
 
     system = platform.system()
-    if system == "Windows":
-        os.system("cls")
-    else:
-        pass
+    #if system == "Windows":
+    #    os.system("cls")
+    #else:
+    #    pass
         #os.system("clear")
 
-    while True:
-        content = input("Chat: ")
-        if content.startswith('"""'):  # prefix """
-            # multi lines input
-            content = content[3:] + "\n"
-            while True:
-                line = input("")
-                if line.endswith('"""'):
-                    # end multi lines input
-                    line = line[:-3]  # suffix """
-                    if line:
-                        content += line + "\n"
-                    break
-                else:
-                    content += line + "\n"
-
-        if content == "":
-            if prompt_file != None:
-                content = open(prompt_file, "r").read()
-            else:
-                content = "Please write a piece of quicksort code in C++."
-        elif os.path.isfile(content):
-            content = open(content, "r").read()
-            
+    content = "强化学习（RL）是一种机器学习（ML）技术，可以训练软件做出决策，以实现最佳结果。它模仿了人类为实现目标所采取的反复试验的学习过程。有助于实现目标的软件操作会得到加强，而偏离目标的操作将被忽略。 RL 算法在处理数据时使用奖惩模式。这些算法从每个操作的反馈中学习，并自行发现实现最终结果的最佳处理路径。此类算法还能够实现延迟满足。最好的整体策略可能需要短期的牺牲，因此其发现的最佳方法可能包括一些惩罚，或在过程中有一些迂回。RL 是一种强大的方法，可以帮助人工智能（AI）系统在看不见的环境中实现最佳结果。使用强化学习（RL）有很多好处。但是，以下三方面往往是最突出的。RL 算法可以在有许多规则和依赖关系的复杂环境中使用。在同一个环境中，即使对环境非常了解，人类可能也无法确定最佳路径。而无模型 RL 算法可以快速适应不断变化的环境，并找到新的策略来优化结果。在传统的 ML 算法中，人类必须通过标记数据对来指导算法。而使用 RL 算法时，就无需手动标记了。这类算法可以自行学习。同时，这类算法还提供整合人类反馈的机制，允许系统根据人类偏好、专业知识和更正进行调试。RL 本质上侧重于长期奖励最大化，因此适用于行动可带来长期后果的场景。它特别适合每一步都无法立即获得反馈的现实情况，因为它可以从延迟的奖励中学习。例如，有关能源消耗或存储的决策可能会产生长期后果。RL 可用于优化长期能源效率和成本。通过适当的架构，RL 代理还可以将学到的策略推广到相似但不相同的任务中。强化学习（RL）可以应用于各种真实用例。下面提供一些示例。在推荐系统等应用场景中，RL 可以根据各个用户的互动情况量身为其推荐内容。这提高了体验的个性化程度。例如，某应用程序可能会根据某些人口统计信息向用户展示广告。该应用程序会通过每次广告互动，了解要向用户展示哪些广告，以改进产品销售情况。传统优化方法通过根据特定标准评估和比较可能的解决方案来解决问题。相比之下，RL 引入了从互动中学习的方式，以便随着时间的推移找到最佳或接近最佳的解决方案。例如，云支出优化系统使用 RL 来适应不断变化的资源需求，并选择最佳实例类型、数量和配置。它根据当前和可用的云基础设施、支出和利用率等因素做出决策。请详细阅读以上文字内容，并概括其大意。"
+    print("输入 'exit' 或 'quit' 或按 Ctrl+C 来退出聊天")
+    try:
+        print(f"Chat: {content}")            
         messages = [{"role": "user", "content": content}]
         input_tensor = tokenizer.apply_chat_template(
             messages, add_generation_prompt=True, return_tensors="pt"
         )
         if force_think:
+            print("============= wrong here ==============")
             token_thinks = torch.tensor([tokenizer.encode("<think>\\n",add_special_tokens=False)],device=input_tensor.device)
             input_tensor = torch.cat(
                 [input_tensor, token_thinks], dim=1
             )
+        #print(f"============= force_think: {force_think} ==============")
         if mode == 'long_context':
             assert Config().long_context_config['max_seq_len'] > input_tensor.shape[1] + max_new_tokens, \
             "please change max_seq_len in  ~/.ktransformers/config.yaml"
@@ -181,10 +163,16 @@ def local_chat(
                 use_flashinfer_mla = True, num_heads = config.num_attention_heads, head_dim_ckv = config.kv_lora_rank, head_dim_kpe = config.qk_rope_head_dim, q_head_dim = config.qk_rope_head_dim + config.qk_nope_head_dim
             )
         else:
-            generated = prefill_and_generate(
-                model, tokenizer, input_tensor.cuda(), max_new_tokens, use_cuda_graph, mode = mode, force_think = force_think, chunk_prefill_size = chunk_prefill_size,
+            os.system("topsprof --start --session prof_test")
+            with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,torch.profiler.ProfilerActivity.GCU,],record_shapes=True,profile_memory=True,with_stack=True,) as prof:
+                generated = prefill_and_generate(model, tokenizer, input_tensor.cuda(), max_new_tokens, use_cuda_graph, mode = mode, force_think = force_think, chunk_prefill_size = chunk_prefill_size,
             )
-
+            #print(prof.key_averages().table(sort_by="self_gcu_time_total", row_limit=40)) # 打印性能统计表格到输出
+            prof.export_chrome_trace('trace_S60_v0.2.3_0724.json')
+        print("\n推理完成，退出程序...")
+        os.system("topsprof --stop --session prof_test")
+    except Exception as e:
+        print(f"发生错误: {e}")
 
 if __name__ == "__main__":
     fire.Fire(local_chat)

@@ -124,7 +124,7 @@ void MOE::warm_up(Backend* backend) {
     }
     from_float(input_fp32.data(), input.data(), config_.hidden_size, config_.hidden_type);
     for (int i = 0; i < config_.expert_num; i++) {
-        uint64_t expert_ids = i;
+        uint32_t expert_ids = i;
         float weights = 0;
         forward_one(1, &expert_ids, &weights, input.data(), output.data(), backend);
     }
@@ -134,7 +134,7 @@ static float act_fn(float x) {
     return x / (1.0f + expf(-x));
 }
 
-void MOE::forward_one(int k, const uint64_t* expert_ids, const float* weights, const void* input, void* output, Backend* backend) {
+void MOE::forward_one(int k, const uint32_t* expert_ids, const float* weights, const void* input, void* output, Backend* backend) {
     const void* gate_input_ptr;
     const void* up_input_ptr;
     if (config_.hidden_type == ggml_internal_get_type_traits(config_.gate_type).vec_dot_type && config_.hidden_type == ggml_internal_get_type_traits(config_.up_type).vec_dot_type) {
@@ -162,7 +162,7 @@ void MOE::forward_one(int k, const uint64_t* expert_ids, const float* weights, c
     int nth = config_.intermediate_size / config_.stride;
     backend->do_work_stealing_job(nth * k, nullptr, [&](int task_id) {
         int expert_idx = task_id / nth;
-        uint64_t expert_id = expert_ids[expert_idx];
+        uint32_t expert_id = expert_ids[expert_idx];
         int ith = task_id % nth;
         
         #ifdef USE_NUMA
@@ -203,7 +203,7 @@ void MOE::forward_one(int k, const uint64_t* expert_ids, const float* weights, c
             s_output_fp32_[i] = 0;
         }
         for (int expert_idx = 0; expert_idx < k; expert_idx++) {
-            uint64_t expert_id = expert_ids[expert_idx];
+            uint32_t expert_id = expert_ids[expert_idx];
 
             #ifdef USE_NUMA
             void* down_proj_ptr = (uint8_t*)down_proj_numa_[Backend::numa_node] + (expert_id * config_.hidden_size + ith * config_.stride) * config_.intermediate_size * ggml_type_size(config_.down_type) / ggml_blck_size(config_.down_type);
@@ -228,7 +228,7 @@ void MOE::forward_one(int k, const uint64_t* expert_ids, const float* weights, c
     }
 }
 
-void MOE::forward_many(int qlen, int k, const uint64_t* expert_ids, const float* weights, const void* input, void* output, Backend* backend) {
+void MOE::forward_many(int qlen, int k, const uint32_t* expert_ids, const float* weights, const void* input, void* output, Backend* backend) {
     for (int i = 0; i < config_.expert_num; i++) {
         m_local_num_[i] = 0;
     }
@@ -341,7 +341,7 @@ void MOE::forward_many(int qlen, int k, const uint64_t* expert_ids, const float*
     }, nullptr);
 }
 
-void MOE::forward(int qlen, int k, const uint64_t* expert_ids, const float* weights, const void* input, void* output, Backend* backend) {
+void MOE::forward(int qlen, int k, const uint32_t* expert_ids, const float* weights, const void* input, void* output, Backend* backend) {
     if (qlen < config_.group_min_len) {
         for (int i = 0; i < qlen; i++) {
             forward_one(k, expert_ids + i * k, weights + i * k, (uint8_t*)input + i * config_.hidden_size * ggml_type_size(config_.hidden_type) / ggml_blck_size(config_.hidden_type), (uint8_t*)output + i * config_.hidden_size * ggml_type_size(config_.hidden_type) / ggml_blck_size(config_.hidden_type), backend);

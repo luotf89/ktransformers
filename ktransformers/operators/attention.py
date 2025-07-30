@@ -136,8 +136,18 @@ class KDeepseekV2Attention(BaseInjectedModule, DeepseekV2Attention):
         #print(k_pe.shape)
         #print(q_nope.shape)
         #print(compressed_kv.shape)
+        # a = torch.einsum("bhqd, bhkd->bhqk", [q_pe, k_pe])
+        # # a = torch.matmul(q_pe, k_pe.mT)
+        # b = torch.einsum("bhqd, bhkd->bhqk", [q_nope, compressed_kv])
+        # # b = torch.matmul(q_nope, compressed_kv.mT)
+        # attn_weights = (a + b) * self.softmax_scale
         
-        attn_weights = (torch.matmul(q_pe, k_pe.mT) + torch.matmul(q_nope, compressed_kv.mT)) * self.softmax_scale
+        # attn_weights = (torch.matmul(q_pe, k_pe.mT) + torch.matmul(q_nope, compressed_kv.mT)) * self.softmax_scale
+
+        # 以上几行代码替换为使用一次torch.einsum计算
+        q_concat = torch.concat([q_pe, q_nope], dim=-1)
+        k_concat = torch.concat([k_pe, compressed_kv], dim=-1)
+        attn_weights = torch.einsum("bhqd, bhkd->bhqk", [q_concat, k_concat]) * self.softmax_scale
         
         #attn_weights [bsz, self.num_heads, q_len, kv_seq_len]
         compressed_kv = compressed_kv.squeeze(1)
@@ -168,6 +178,17 @@ class KDeepseekV2Attention(BaseInjectedModule, DeepseekV2Attention):
         )
         
         attn_output = torch.einsum('bhql,blc->bhqc', attn_weights, compressed_kv)
+
+        # attn_output = torch.nn.functional.scaled_dot_product_attention(q_concat, k_concat, compressed_kv, attn_mask=attention_mask)
+
+        # # FA接口暂时有限制
+        # # attn_output = flash_attn.flash_attn_func(
+        # #     q_concat,
+        # #     k_concat,
+        # #     compressed_kv,
+        # #     softmax_scale=self.softmax_scale,
+        # #     causal=True,
+        # # )
         
         attn_output = torch.matmul(attn_output, out_absorb.mT) 
 
@@ -590,7 +611,7 @@ class KDeepseekV2Attention(BaseInjectedModule, DeepseekV2Attention):
         **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         if os.name == 'nt' or get_compute_capability()<8:
-            print("for Windows or GPU before ampere, use forward_windows")
+            # print("for Windows or GPU before ampere, use forward_windows")
             return self.forward_windows(
                 hidden_states,
                 attention_mask,
